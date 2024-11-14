@@ -1,53 +1,20 @@
 from random import random
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from fastapi_pagination import Params
 from fastapi_pagination.ext.beanie import paginate
-from fief_client import FiefAccessTokenInfo, FiefUserInfo
+from fief_client import FiefAccessTokenInfo
 from pydantic import Field
-from pymongo.errors import DuplicateKeyError
 
 from exako.apps.exercise import builder, schema
-from exako.apps.exercise.constants import ExerciseType, Language, Level
-from exako.apps.exercise.models import Exercise, exercise_map
-from exako.auth import current_admin_user, current_user
+from exako.apps.exercise.models import Exercise
+from exako.auth import current_user
 from exako.core import schema as core_schema
+from exako.core.constants import ExerciseType, Language, Level
 from exako.core.pagination import Page
 
 exercise_router = APIRouter()
-
-
-@exercise_router.post(
-    path='/',
-    status_code=201,
-    response_model=schema.ExerciseCreateRead,
-    responses={
-        **core_schema.PERMISSION_DENIED,
-        **core_schema.OBJECT_NOT_FOUND,
-        status.HTTP_409_CONFLICT: {
-            'description': 'O exercício específicado já existe.',
-            'content': {
-                'application/json': {'example': {'detail': 'exercise already exists.'}}
-            },
-        },
-    },
-    summary='Criar um novo exercício.',
-    description='Endpoint criado para criar um novo tipo de exercício baseado em um termo existente.',
-)
-async def create_exercise(
-    user: Annotated[FiefUserInfo, Depends(current_admin_user)],
-    exercise_schema: schema.ExerciseCreateBase,
-):
-    exercise_model = exercise_map.get(exercise_schema.type)
-    try:
-        data = exercise_schema.model_dump(exclude_none=True)
-        return await exercise_model(**data).insert()
-    except DuplicateKeyError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='exercise already exists.',
-        )
 
 
 @exercise_router.get(

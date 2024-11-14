@@ -11,7 +11,7 @@ class ExerciseType(int, Enum):
     TERM_SENTENCE_MCHOICE = auto()
     TERM_DEFINITION_MCHOICE = auto()
     TERM_IMAGE_MCHOICE = auto()
-    TERM_IMAGE_MCHOICE_TEXT = auto()
+    TERM_IMAGE_TEXT_MCHOICE = auto()
     TERM_CONNECTION = auto()
     RANDOM = auto()
 

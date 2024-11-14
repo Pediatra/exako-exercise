@@ -1,12 +1,9 @@
-from typing import Any, ClassVar
+from typing import Any
 from urllib.parse import urlparse
-from uuid import UUID
 
-from beanie import PydanticObjectId
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field
 
-from exako.apps.exercise.constants import ExerciseType, Language, Level
-from exako.core.helper import normalize_array_text
+from exako.core.constants import ExerciseType
 
 
 def validate_audio_url(cls, audio_url: str) -> str:
@@ -41,218 +38,14 @@ def validate_image_url(cls, image_url: str) -> str:
     return image_url
 
 
-def validate_distractors_reference(self):
-    if self.term_reference in self.distractors:
-        raise ValueError('term_reference cannot be in distractors.')
-    if self.term_id in self.distractors:
-        raise ValueError('term_id cannot be in distractors.')
-
-    return self
-
-
-class ExerciseCreateBase(BaseModel):
-    term_id: UUID
-    term_reference: UUID
-    language: Language
-    type: ExerciseType
-    level: Level | None = None
-
-    model_config = ConfigDict(extra='allow')
-
-    @model_validator(mode='before')
-    @classmethod
-    def exercise_validate(cls, data):
-        if cls is not ExerciseCreateBase or not isinstance(data, dict):
-            return data
-
-        exercise_type = (
-            data.get('type')
-            if isinstance(data.get('type'), ExerciseType)
-            else ExerciseType(data.get('type'))
-        )
-
-        model = None
-        for subclass in ExerciseCreateBase.__subclasses__():
-            if subclass.exercise_type == exercise_type:
-                model = subclass
-                break
-
-        if model is None:
-            raise ValueError('exercise type is not valid.')
-
-        return model(**data).model_dump()
-
-
-class ExerciseCreateRead(BaseModel):
-    id: PydanticObjectId
-    term_id: UUID
-    term_reference: UUID
-    language: Language
-    type: ExerciseType
-    level: Level | None = None
-
-
-class OrderSentenceCreate(ExerciseCreateBase):
-    sentence: list[str]
-    distractors: set[str] | None = None
-
-    exercise_type: ClassVar[int] = ExerciseType.ORDER_SENTENCE
-
-    @model_validator(mode='after')
-    def validate_distractors(self):
-        if self.distractors is None:
-            return self
-
-        normalized_sentence = normalize_array_text(self.sentence)
-        normalized_distractors = normalize_array_text(self.distractors)
-
-        intersection = set(normalized_sentence).intersection(
-            set(normalized_distractors)
-        )
-
-        if len(intersection) > 0:
-            self.distractors = {
-                item
-                for item, norm_item in zip(self.distractors, normalized_distractors)
-                if norm_item not in intersection
-            }
-
+def validate_distractors_reference(field):
+    def wrapper(self):
+        reference_field = getattr(self, field)
+        if reference_field in self.distractors:
+            raise ValueError(f'{field} cannot be in distractors.')
         return self
 
-
-class ListenTermCreate(ExerciseCreateBase):
-    audio_url: str
-    answer: str
-
-    exercise_type: ClassVar[int] = ExerciseType.LISTEN_TERM
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-
-
-class ListenTermMChoiceCreate(ExerciseCreateBase):
-    audio_url: str
-    content: str
-    distractors: dict[UUID, str] = Field(min_length=3)
-
-    exercise_type: ClassVar[int] = ExerciseType.LISTEN_TERM_MCHOICE
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference
-    )
-
-
-class ListenSentenceCreate(ExerciseCreateBase):
-    audio_url: str
-    answer: str
-
-    exercise_type: ClassVar[int] = ExerciseType.LISTEN_SENTENCE
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-
-
-class SpeakTermCreate(ExerciseCreateBase):
-    audio_url: str
-    phonetic: str
-    content: str
-
-    exercise_type: ClassVar[int] = ExerciseType.SPEAK_TERM
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-
-
-class SpeakSentenceCreate(ExerciseCreateBase):
-    audio_url: str
-    phonetic: str
-    content: str
-
-    exercise_type: ClassVar[int] = ExerciseType.SPEAK_SENTENCE
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-
-
-class TermSentenceMChoiceCreate(ExerciseCreateBase):
-    sentence: str
-    answer: str
-    distractors: dict[UUID, str] = Field(min_length=3)
-
-    exercise_type: ClassVar[int] = ExerciseType.TERM_SENTENCE_MCHOICE
-
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference
-    )
-
-
-class TermDefinitionMChoiceCreate(ExerciseCreateBase):
-    content: str
-    answer: str
-    distractors: dict[UUID, str] = Field(min_length=3)
-
-    exercise_type: ClassVar[int] = ExerciseType.TERM_DEFINITION_MCHOICE
-
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference
-    )
-
-
-class TermImageMChoiceCreate(ExerciseCreateBase):
-    image_url: str
-    audio_url: str
-    distractors: dict[UUID, str] = Field(min_length=3)
-
-    exercise_type: ClassVar[int] = ExerciseType.TERM_IMAGE_MCHOICE
-
-    _validate_image_url = field_validator('image_url')(validate_image_url)
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference
-    )
-
-
-class TermImageTextMChoiceCreate(ExerciseCreateBase):
-    image_url: str
-    answer: str
-    distractors: dict[UUID, str] = Field(min_length=3)
-
-    exercise_type: ClassVar[int] = ExerciseType.TERM_IMAGE_MCHOICE_TEXT
-
-    _validate_image_url = field_validator('image_url')(validate_image_url)
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference
-    )
-
-
-class TermConnectionCreate(ExerciseCreateBase):
-    content: str
-    connections: dict[UUID, str] = Field(min_length=4)
-    distractors: dict[UUID, str] = Field(min_length=8)
-
-    exercise_type: ClassVar[int] = ExerciseType.TERM_CONNECTION
-
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference
-    )
-
-    @model_validator(mode='after')
-    def validate_connections_reference(self):
-        if self.term_reference in self.connections:
-            raise ValueError('term_reference cannot be in connections.')
-        if self.term_id in self.connections:
-            raise ValueError('term_id cannot be in connections.')
-
-        return self
-
-    @model_validator(mode='after')
-    def validate_intersections(self):
-        distractors = set(self.distractors.keys())
-        connections = set(self.connections.keys())
-
-        if len(distractors.intersection(connections)) > 0:
-            raise ValueError(
-                'an intersection was found between distractors and connections.'
-            )
-
-        return self
+    return wrapper
 
 
 class ExerciseRead(BaseModel):
@@ -289,13 +82,17 @@ class ListenMChoiceRead(BaseModel):
     )
     content: str = Field(
         examples=['casa'],
-        description='Conteúdo do termo a ser pronúnciado.',
+        description='Conteúdo que ficará no header.',
     )
 
 
 class SpeakRead(BaseModel):
     audio_url: str = Field(examples=['https://example.com/my-audio.wav'])
     phonetic: str = Field(examples=['/ˈhaʊ.zɪz/'])
+    content: str = Field(
+        examples=['casa'],
+        description='Conteúdo que ficará no header.',
+    )
 
 
 class TermMChoiceRead(BaseModel):
@@ -305,7 +102,7 @@ class TermMChoiceRead(BaseModel):
     )
     content: str = Field(
         examples=['casa'],
-        description='Conteúdo para preencher o header do exercício.',
+        description='Conteúdo que ficará no header.',
     )
 
 

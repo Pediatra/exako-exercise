@@ -8,11 +8,11 @@ from fief_client import FiefUserInfo
 from pydantic import BaseModel, Field, create_model
 
 from exako.apps.exercise import models
-from exako.apps.exercise.constants import ExerciseType
 from exako.apps.exercise.schema import ExerciseResponse
 from exako.auth import current_user
 from exako.core import helper
 from exako.core import schema as core_schema
+from exako.core.constants import ExerciseType
 
 
 class ExerciseBase(ABC):
@@ -144,10 +144,8 @@ class OrderSentenceExercise(ExerciseBase):
 
     @property
     def distractors(self) -> list:
-        if not self.instance.distractors:
-            return []
         max_distractors = len(self.instance.distractors)
-        return list(sample(self.instance.distractors, randint(0, max_distractors)))
+        return list(sample(self.instance.distractors, randint(1, max_distractors)))
 
     def build(self) -> dict:
         sentence = self.instance.sentence + self.distractors
@@ -189,7 +187,7 @@ class ListenTermMChoiceExercise(ExerciseBase):
         return helper.sample_dict(self.instance.distractors, 3)
 
     def build(self) -> dict:
-        choices = {self.instance.term_reference: self.instance.audio_url}
+        choices = {self.instance.term_id: self.instance.audio_url}
         choices.update(self.distractors)
         choices = helper.shuffle_dict(choices)
 
@@ -197,7 +195,7 @@ class ListenTermMChoiceExercise(ExerciseBase):
 
     @property
     def correct_answer(self):
-        return self.instance.term_reference
+        return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
         return answer['term_id'] == self.correct_answer
@@ -313,7 +311,7 @@ class TermSentenceMChoiceExercise(ExerciseBase):
         return helper.sample_dict(self.instance.distractors, 3)
 
     def build(self) -> dict:
-        choices = {self.instance.term_reference: self.instance.conetnt}
+        choices = {self.instance.term_id: self.instance.conetnt}
         choices.update(self.distractors)
         choices = helper.shuffle_dict(choices)
 
@@ -321,7 +319,7 @@ class TermSentenceMChoiceExercise(ExerciseBase):
 
     @property
     def correct_answer(self):
-        return self.instance.term_reference
+        return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
         return self.correct_answer == answer['term_id']
@@ -336,7 +334,7 @@ class TermDefinitionMChoiceExercise(ExerciseBase):
         return helper.sample_dict(self.instance.distractors, 3)
 
     def build(self) -> dict:
-        choices = {self.instance.term_reference: self.instance.answer}
+        choices = {self.instance.term_definition_id: self.instance.answer}
         choices.update(self.distractors)
         choices = helper.shuffle_dict(choices)
 
@@ -344,7 +342,7 @@ class TermDefinitionMChoiceExercise(ExerciseBase):
 
     @property
     def correct_answer(self):
-        return self.instance.term_reference
+        return self.instance.term_definition_id
 
     def assert_answer(self, answer: dict) -> bool:
         return self.correct_answer == answer['term_id']
@@ -359,7 +357,7 @@ class TermImageMChoiceExercise(ExerciseBase):
         return helper.sample_dict(self.instance.distractors, 3)
 
     def build(self) -> dict:
-        choices = {self.instance.term_reference: self.instance.image_url}
+        choices = {self.instance.term_id: self.instance.image_url}
         choices.update(self.distractors)
         choices = helper.shuffle_dict(choices)
 
@@ -367,14 +365,14 @@ class TermImageMChoiceExercise(ExerciseBase):
 
     @property
     def correct_answer(self):
-        return self.instance.term_reference
+        return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
         return self.correct_answer == answer['term_id']
 
 
 class TermImageTextMChoiceExercise(ExerciseBase):
-    exercise_type = ExerciseType.TERM_IMAGE_MCHOICE_TEXT
+    exercise_type = ExerciseType.TERM_IMAGE_TEXT_MCHOICE
     instance: type[models.TermImageTextMChoice]
 
     @property
@@ -382,7 +380,7 @@ class TermImageTextMChoiceExercise(ExerciseBase):
         return helper.sample_dict(self.instance.distractors, 3)
 
     def build(self) -> dict:
-        choices = {self.instance.term_reference: self.instance.answer}
+        choices = {self.instance.term_id: self.instance.answer}
         choices.update(self.distractors)
         choices = helper.shuffle_dict(choices)
 
@@ -390,7 +388,7 @@ class TermImageTextMChoiceExercise(ExerciseBase):
 
     @property
     def correct_answer(self):
-        return self.instance.term_reference
+        return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
         return self.correct_answer == answer['term_id']

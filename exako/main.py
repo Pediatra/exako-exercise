@@ -2,10 +2,15 @@ from contextlib import asynccontextmanager
 
 from beanie import init_beanie
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
 from fastapi_pagination import add_pagination
 from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import ValidationError
+from starlette.responses import JSONResponse
 
+from exako.apps.computed.router import computed_router
 from exako.apps.exercise.router import exercise_router
+from exako.core.helper import register_documents
 from exako.settings import settings
 
 database_client = AsyncIOMotorClient(settings.DATABASE)
@@ -16,18 +21,8 @@ async def lifespan(app: FastAPI):
     await init_beanie(
         database=database_client[settings.DATABASE_NAME],
         document_models=[
-            'exako.apps.exercise.models.Exercise',
-            'exako.apps.exercise.models.OrderSentence',
-            'exako.apps.exercise.models.ListenTerm',
-            'exako.apps.exercise.models.ListenTermMChoice',
-            'exako.apps.exercise.models.ListenSentence',
-            'exako.apps.exercise.models.SpeakTerm',
-            'exako.apps.exercise.models.SpeakSentence',
-            'exako.apps.exercise.models.TermSentenceMChoice',
-            'exako.apps.exercise.models.TermDefinitionMChoice',
-            'exako.apps.exercise.models.TermImageMChoice',
-            'exako.apps.exercise.models.TermImageTextMChoice',
-            'exako.apps.exercise.models.TermConnection',
+            *register_documents('exako.apps.exercise'),
+            *register_documents('exako.apps.computed'),
         ],
     )
     yield
@@ -37,4 +32,15 @@ app = FastAPI(lifespan=lifespan)
 
 add_pagination(app)
 
-app.include_router(exercise_router, prefix='/exercise')
+app.include_router(exercise_router, prefix='/exercise', tags=['exercise'])
+app.include_router(
+    computed_router, prefix='/exercise/computed', tags=['computed exercise']
+)
+
+
+@app.exception_handler(ValidationError)
+async def validation_error_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=422,
+        content={'detail': jsonable_encoder(exc.errors())},
+    )

@@ -39,7 +39,7 @@ asyncio_default_fixture_loop_scope = 'function'
 format = "ruff format . && ruff check . --select I001 --fix" 
 run = "fastapi dev exako/main.py --port 8080"
 pre_test = "task format"
-test = "pytest -s --cov=. -vv"
+test = "pytest -s --cov=. -vv -x"
 post_test = "coverage html"
 
 [build-system]

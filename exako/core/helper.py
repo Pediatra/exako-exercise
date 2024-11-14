@@ -1,8 +1,11 @@
+import importlib
+import inspect
 import re
 from random import sample, shuffle
 from string import punctuation
 from uuid import UUID
 
+from beanie import Document
 from fastapi_pagination import Params
 from fief_client import FiefAccessTokenInfo
 from httpx import AsyncClient
@@ -32,6 +35,15 @@ def normalize_text(text):
 
 def normalize_array_text(array):
     return [normalize_text(item) for item in array]
+
+
+def register_documents(app_path: str, module_name: str = 'models'):
+    module = importlib.import_module(f'{app_path}.{module_name}')
+    return [
+        cls
+        for _, cls in inspect.getmembers(module, inspect.isclass)
+        if issubclass(cls, Document) and cls != Document
+    ]
 
 
 async def fetch_card_terms(
