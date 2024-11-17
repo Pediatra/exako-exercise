@@ -5,16 +5,11 @@ from uuid import UUID
 from beanie import Document, Indexed
 from fastapi_pagination import Params
 from fief_client import FiefUserInfo
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field
 from pymongo import ASCENDING, IndexModel
 
-from exako.apps.exercise.schema import (
-    validate_audio_url,
-    validate_distractors_reference,
-    validate_image_url,
-)
 from exako.core.constants import ExerciseType, Language, Level
-from exako.core.helper import fetch_card_terms, normalize_array_text
+from exako.core.helper import fetch_card_terms
 
 
 class Exercise(Document):
@@ -72,24 +67,6 @@ class OrderSentence(Exercise):
     distractors: list[str]
     term_example_id: Annotated[UUID, Indexed()]
 
-    @model_validator(mode='after')
-    def validate_distractors(self):
-        normalized_sentence = normalize_array_text(self.sentence)
-        normalized_distractors = normalize_array_text(self.distractors)
-
-        intersection = set(normalized_sentence).intersection(
-            set(normalized_distractors)
-        )
-
-        if len(intersection) > 0:
-            self.distractors = {
-                item
-                for item, norm_item in zip(self.distractors, normalized_distractors)
-                if norm_item not in intersection
-            }
-
-        return self
-
     class Settings:
         indexes = [
             IndexModel(
@@ -106,8 +83,6 @@ class ListenTerm(Exercise):
     answer: str
     term_id: Annotated[UUID, Indexed()]
 
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-
     class Settings:
         indexes = [
             IndexModel(
@@ -122,13 +97,8 @@ class ListenTerm(Exercise):
 class ListenTermMChoice(Exercise):
     audio_url: str
     content: str
+    distractors: dict[UUID, str]
     term_id: Annotated[UUID, Indexed()]
-    distractors: dict[UUID, str] = Field(min_length=6)
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference('term_id')
-    )
 
     class Settings:
         indexes = [
@@ -146,8 +116,6 @@ class ListenSentence(Exercise):
     answer: str
     term_example_id: Annotated[UUID, Indexed()]
 
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-
     class Settings:
         indexes = [
             IndexModel(
@@ -162,10 +130,8 @@ class ListenSentence(Exercise):
 class SpeakTerm(Exercise):
     audio_url: str
     phonetic: str
-    content: str
+    answer: str
     term_id: Annotated[UUID, Indexed()]
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
 
     class Settings:
         indexes = [
@@ -181,10 +147,8 @@ class SpeakTerm(Exercise):
 class SpeakSentence(Exercise):
     audio_url: str
     phonetic: str
-    content: str
+    answer: str
     term_example_id: Annotated[UUID, Indexed()]
-
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
 
     class Settings:
         indexes = [
@@ -200,12 +164,8 @@ class SpeakSentence(Exercise):
 class TermSentenceMChoice(Exercise):
     sentence: str
     answer: str
-    distractors: dict[UUID, str] = Field(min_length=6)
+    distractors: dict[UUID, str]
     term_id: Annotated[UUID, Indexed()]
-
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference('term_id')
-    )
 
     class Settings:
         indexes = [
@@ -221,13 +181,9 @@ class TermSentenceMChoice(Exercise):
 class TermDefinitionMChoice(Exercise):
     content: str
     answer: str
-    distractors: dict[UUID, str] = Field(min_length=6)
+    distractors: dict[UUID, str]
     term_id: Annotated[UUID, Indexed()]
     term_definition_id: Annotated[UUID, Indexed()]
-
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference('term_definition_id')
-    )
 
     class Settings:
         indexes = [
@@ -247,14 +203,8 @@ class TermDefinitionMChoice(Exercise):
 class TermImageMChoice(Exercise):
     image_url: str
     audio_url: str
+    distractors: dict[UUID, str]
     term_id: Annotated[UUID, Indexed()]
-    distractors: dict[UUID, str] = Field(min_length=6)
-
-    _validate_image_url = field_validator('image_url')(validate_image_url)
-    _validate_audio_url = field_validator('audio_url')(validate_audio_url)
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference('term_id')
-    )
 
     class Settings:
         indexes = [
@@ -271,12 +221,7 @@ class TermImageTextMChoice(Exercise):
     image_url: str
     answer: str
     term_id: Annotated[UUID, Indexed()]
-    distractors: dict[UUID, str] = Field(min_length=6)
-
-    _validate_image_url = field_validator('image_url')(validate_image_url)
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference('term_id')
-    )
+    distractors: dict[UUID, str]
 
     class Settings:
         indexes = [
@@ -292,30 +237,8 @@ class TermImageTextMChoice(Exercise):
 class TermConnection(Exercise):
     content: str
     term_id: Annotated[UUID, Indexed()]
-    connections: dict[UUID, str] = Field(min_length=8)
-    distractors: dict[UUID, str] = Field(min_length=16)
-
-    _validate_distractors_reference = model_validator(mode='after')(
-        validate_distractors_reference('term_id')
-    )
-
-    @model_validator(mode='after')
-    def validate_connections_reference(self):
-        if self.term_id in self.connections:
-            raise ValueError('term_id cannot be in connections.')
-        return self
-
-    @model_validator(mode='after')
-    def validate_intersections(self):
-        distractors = set(self.distractors.keys())
-        connections = set(self.connections.keys())
-
-        if len(distractors.intersection(connections)) > 0:
-            raise ValueError(
-                'an intersection was found between distractors and connections.'
-            )
-
-        return self
+    connections: dict[UUID, str]
+    distractors: dict[UUID, str]
 
     class Settings:
         indexes = [

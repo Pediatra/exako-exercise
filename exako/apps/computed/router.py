@@ -36,7 +36,7 @@ async def create_computed_exercise(
     user: Annotated[FiefUserInfo, Depends(current_admin_user)],
     exercise_schema: schema.ExerciseCreateBase,
 ):
-    exercise_model = computed_exercise_map.get(exercise_schema.type)
+    exercise_model = computed_exercise_map[exercise_schema.type]
     try:
         return await exercise_model.update_or_insert(**exercise_schema.model_dump())
     except DuplicateKeyError:

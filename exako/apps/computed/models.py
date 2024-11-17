@@ -4,6 +4,7 @@ from uuid import UUID
 from beanie import Document
 from pydantic import ValidationError
 
+from exako.apps.computed import schema
 from exako.apps.exercise import models
 from exako.core.constants import ExerciseType, Language
 
@@ -12,13 +13,13 @@ class ExerciseComputed(Document):
     language: Language
     type: ExerciseType
 
-    model: ClassVar[models.Exercise] = models.Exercise
+    model: ClassVar = models.Exercise
 
     @classmethod
     def validate_exercise_data(cls, **data):
         cls.model_validate(data)
         try:
-            cls.model.model_validate(data)
+            cls.create_schema.model_validate(data)
         except ValidationError as e:
             errors = e.errors()
             missing_fields = [
@@ -34,7 +35,7 @@ class ExerciseComputed(Document):
     @classmethod
     async def insert_exercise(
         cls, computed: Type['ExerciseComputed']
-    ) -> Type['ExerciseComputed'] | Type[models.Exercise]:
+    ) -> Type['ExerciseComputed'] | models.Exercise:
         instance_data = computed.model_dump()
         try:
             exercise = cls.model(**instance_data)
@@ -47,7 +48,7 @@ class ExerciseComputed(Document):
     @classmethod
     async def update_or_insert(
         cls, **data: dict
-    ) -> Type['ExerciseComputed'] | Type[models.Exercise]:
+    ) -> Type['ExerciseComputed'] | models.Exercise:
         term_reference = data.pop('term_reference')
         data[cls.term_reference] = term_reference
 
@@ -75,7 +76,8 @@ class OrderSentenceComputed(ExerciseComputed):
     term_example_id: UUID
 
     term_reference: ClassVar[str] = 'term_example_id'
-    model: ClassVar[models.OrderSentence] = models.OrderSentence
+    model: ClassVar = models.OrderSentence
+    create_schema: ClassVar = schema.OrderSentenceSchema
 
 
 class ListenTermComputed(ExerciseComputed):
@@ -84,7 +86,8 @@ class ListenTermComputed(ExerciseComputed):
     term_id: UUID
 
     term_reference: ClassVar[str] = 'term_id'
-    model: ClassVar[models.ListenTerm] = models.ListenTerm
+    model: ClassVar = models.ListenTerm
+    create_schema: ClassVar = schema.ListenTermSchema
 
 
 class ListenTermMChoiceComputed(ExerciseComputed):
@@ -94,7 +97,8 @@ class ListenTermMChoiceComputed(ExerciseComputed):
     distractors: dict[UUID, str] | None = None
 
     term_reference: ClassVar[str] = 'term_id'
-    model: ClassVar[models.ListenTermMChoice] = models.ListenTermMChoice
+    model: ClassVar = models.ListenTermMChoice
+    create_schema: ClassVar = schema.ListenTermMChoiceSchema
 
 
 class ListenSentenceComputed(ExerciseComputed):
@@ -103,27 +107,30 @@ class ListenSentenceComputed(ExerciseComputed):
     term_example_id: UUID
 
     term_reference: ClassVar[str] = 'term_example_id'
-    model: ClassVar[models.ListenSentence] = models.ListenSentence
+    model: ClassVar = models.ListenSentence
+    create_schema: ClassVar = schema.ListenSentenceSchema
 
 
 class SpeakTermComputed(ExerciseComputed):
     audio_url: str | None = None
     phonetic: str | None = None
-    content: str | None = None
+    answer: str | None = None
     term_id: UUID
 
     term_reference: ClassVar[str] = 'term_id'
-    model: ClassVar[models.SpeakTerm] = models.SpeakTerm
+    model: ClassVar = models.SpeakTerm
+    create_schema: ClassVar = schema.SpeakTermSchema
 
 
 class SpeakSentenceComputed(ExerciseComputed):
     audio_url: str | None = None
     phonetic: str | None = None
-    content: str | None = None
+    answer: str | None = None
     term_example_id: UUID
 
     term_reference: ClassVar[str] = 'term_example_id'
-    model: ClassVar[models.SpeakSentence] = models.SpeakSentence
+    model: ClassVar = models.SpeakSentence
+    create_schema: ClassVar = schema.SpeakSentenceSchema
 
 
 class TermSentenceMChoiceComputed(ExerciseComputed):
@@ -133,7 +140,8 @@ class TermSentenceMChoiceComputed(ExerciseComputed):
     distractors: dict[UUID, str] | None = None
 
     term_reference: ClassVar[str] = 'term_id'
-    model: ClassVar[models.TermSentenceMChoice] = models.TermSentenceMChoice
+    model: ClassVar = models.TermSentenceMChoice
+    create_schema: ClassVar = schema.TermSentenceMChoiceSchema
 
 
 class TermDefinitionMChoiceComputed(ExerciseComputed):
@@ -144,7 +152,8 @@ class TermDefinitionMChoiceComputed(ExerciseComputed):
     distractors: dict[UUID, str] | None = None
 
     term_reference: ClassVar[str] = 'term_definition_id'
-    model: ClassVar[models.TermDefinitionMChoice] = models.TermDefinitionMChoice
+    model: ClassVar = models.TermDefinitionMChoice
+    create_schema: ClassVar = schema.TermDefinitionMChoiceSchema
 
 
 class TermImageMChoiceComputed(ExerciseComputed):
@@ -154,7 +163,8 @@ class TermImageMChoiceComputed(ExerciseComputed):
     distractors: dict[UUID, str] | None = None
 
     term_reference: ClassVar[str] = 'term_id'
-    model: ClassVar[models.TermImageMChoice] = models.TermImageMChoice
+    model: ClassVar = models.TermImageMChoice
+    create_schema: ClassVar = schema.TermImageMChoiceSchema
 
 
 class TermImageTextMChoiceComputed(ExerciseComputed):
@@ -164,7 +174,8 @@ class TermImageTextMChoiceComputed(ExerciseComputed):
     distractors: dict[UUID, str] | None = None
 
     term_reference: ClassVar[str] = 'term_id'
-    model: ClassVar[models.TermImageTextMChoice] = models.TermImageTextMChoice
+    model: ClassVar = models.TermImageTextMChoice
+    create_schema: ClassVar = schema.TermImageTextMChoiceSchema
 
 
 class TermConnectionComputed(ExerciseComputed):
@@ -174,7 +185,8 @@ class TermConnectionComputed(ExerciseComputed):
     distractors: dict[UUID, str] | None = None
 
     term_reference: ClassVar[str] = 'term_id'
-    model: ClassVar[models.TermConnection] = models.TermConnection
+    model: ClassVar = models.TermConnection
+    create_schema: ClassVar = schema.TermConnectionSchema
 
 
 computed_exercise_map: dict[ExerciseType, type[ExerciseComputed]] = {

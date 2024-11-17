@@ -114,7 +114,7 @@ class SpeakTermFactory(ExerciseBaseFactory):
     type: ExerciseType = ExerciseType.SPEAK_TERM
     audio_url: str = 'https://example.com/url.mp3'
     phonetic: str = 'head'
-    content: str = Field(default_factory=lambda: faker.word())
+    answer: str = Field(default_factory=lambda: faker.word())
     term_id: UUID = Field(default_factory=uuid4)
 
     model: ClassVar = models.SpeakTerm
@@ -126,7 +126,7 @@ class SpeakSentenceFactory(ExerciseBaseFactory):
     type: ExerciseType = ExerciseType.SPEAK_SENTENCE
     audio_url: str = 'https://example.com/url.mp3'
     phonetic: str = 'head'
-    content: str = Field(default_factory=lambda: faker.word())
+    answer: str = Field(default_factory=lambda: faker.word())
     term_example_id: UUID = Field(default_factory=uuid4)
 
     model: ClassVar = models.SpeakSentence

@@ -1,14 +1,18 @@
+import inspect
 from abc import ABC, abstractmethod
 from random import randint, sample, shuffle
 from typing import Annotated, Any, Callable
+from uuid import UUID
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fief_client import FiefUserInfo
 from pydantic import BaseModel, Field, create_model
 
 from exako.apps.exercise import models
-from exako.apps.exercise.schema import ExerciseResponse
+from exako.apps.exercise.voice import text
+from exako.apps.exercise.voice.transcriber import trascribe_to_text
+from exako.apps.history.models import ExerciseHistory
 from exako.auth import current_user
 from exako.core import helper
 from exako.core import schema as core_schema
@@ -17,21 +21,21 @@ from exako.core.constants import ExerciseType
 
 class ExerciseBase(ABC):
     exercise_type: ExerciseType
-    instance: type[models.Exercise]
 
-    def __init__(
+    async def __init__(
         self,
         exercise_id: PydanticObjectId,
     ):
-        self.instance = models.Exercise.find_one(
+        instance = await models.Exercise.find(
             {
                 'id': exercise_id,
                 'type': self.exercise_type,
             },
             with_children=True,
-        )
-        if self.instance is None:
+        ).first_or_none()
+        if instance is None:
             raise HTTPException(status_code=404, detail='exercise not found.')
+        self.instance = instance
 
     @abstractmethod
     def build(self) -> dict: ...
@@ -43,35 +47,58 @@ class ExerciseBase(ABC):
     @abstractmethod
     def assert_answer(self, answer: dict) -> bool: ...
 
-    def check(self, user: FiefUserInfo, answer: dict, exercise_request: dict) -> dict:
+    async def check(
+        self,
+        user_id: str,
+        answer: dict,
+        exercise_request: dict,
+    ) -> dict:
         correct = self.assert_answer(answer)
         check_response = {
             'correct': correct,
             'correct_answer': self.correct_answer,
         }
-        # self.history_repository.create( TODO
-        #     exercise=self.instance,
-        #     user=user['sub'],
-        #     correct=correct,
-        #     response={**answer, **check_response},
-        #     request=exercise_request,
-        # )
+        await ExerciseHistory(
+            exercise=self.instance,
+            user_id=user_id,
+            correct=correct,
+            response={**answer, **check_response},
+            request=exercise_request,
+        ).insert()
         return check_response
 
+    # fastapi endpoint methods
+
     @classmethod
-    def generate_build_endpoint(cls, exercise_schema: type[BaseModel]) -> Callable:
-        def build_endpoint(
+    def generate_build_endpoint(
+        cls, exercise_schema: type[BaseModel]
+    ) -> tuple[Callable, dict]:
+        async def build_endpoint(
             user: Annotated[FiefUserInfo, Depends(current_user)],
-            exercise_builder: Annotated[type[ExerciseBase], Depends(cls)],
+            exercise_builder: Annotated[ExerciseBase, Depends(cls)],
         ):
             return exercise_schema(**exercise_builder.build())
 
-        return build_endpoint
+        path_options = {
+            'responses': {
+                **core_schema.NOT_AUTHENTICATED,
+                **core_schema.OBJECT_NOT_FOUND,
+            },
+        }
+        return build_endpoint, path_options
 
     @classmethod
-    def generate_check_endpoint(
-        cls, schema: type[BaseModel], **answer_fields
-    ) -> Callable:
+    def generate_exercise_response(cls):
+        correct_answer_signarute = inspect.signature(cls.correct_answer.fget)
+        correct_answer_type = correct_answer_signarute.return_annotation
+        return create_model(
+            f'ExerciseResponse{cls.__name__}',
+            correct=(bool, ...),
+            correct_answer=(correct_answer_type, ...),
+        )
+
+    @classmethod
+    def generate_answer_schema(cls, base_schema, **answer_fields):
         field_definitions = dict()
         for field, field_info in answer_fields.items():
             if not isinstance(field_info, tuple):
@@ -81,30 +108,38 @@ class ExerciseBase(ABC):
             f'AnswerSchema{cls.__name__}',
             **field_definitions,
         )
-        CheckSchema = create_model(
+        return create_model(
             f'CheckSchema{cls.__name__}',
-            time_to_answer=(int, Field(gt=0)),
+            seconds_to_answer=(int, Field(gt=0)),
             answer=(AnswerSchema, ...),
             **{
                 name: (field.annotation, field)
-                for name, field in schema.model_fields.items()
+                for name, field in base_schema.model_fields.items()
             },
         )
 
-        def check_endpoint(
+    @classmethod
+    def generate_check_endpoint(
+        cls, schema: type[BaseModel], **answer_fields
+    ) -> tuple[Callable, dict]:
+        async def check_endpoint(
             user: Annotated[FiefUserInfo, Depends(current_user)],
-            exercise_builder: Annotated[type[ExerciseBase], Depends(cls)],
-            answer: CheckSchema,
+            exercise_builder: Annotated[ExerciseBase, Depends(cls)],
+            answer: cls.generate_answer_schema(schema, **answer_fields),
         ):
-            return ExerciseResponse(
-                **exercise_builder.check(
-                    user,
-                    answer=answer.model_dump()['answer'],
-                    exercise_request=answer.model_dump(exclude={'answer'}),
-                )
+            return await exercise_builder.check(
+                user_id=user['sub'],
+                answer=answer.model_dump(include={'answer'})['answer'],
+                exercise_request=answer.model_dump(exclude={'answer'}),
             )
 
-        return check_endpoint
+        path_options = {
+            'responses': {
+                **core_schema.NOT_AUTHENTICATED,
+                **core_schema.OBJECT_NOT_FOUND,
+            },
+        }
+        return check_endpoint, path_options
 
     @classmethod
     def as_endpoint(
@@ -115,27 +150,25 @@ class ExerciseBase(ABC):
         schema: type[BaseModel],
         **answer_fields,
     ):
+        build_endpoint, options = cls.generate_build_endpoint(schema)
         router.get(
             path=path,
             response_model=schema,
-            responses={
-                **core_schema.NOT_AUTHENTICATED,
-                **core_schema.OBJECT_NOT_FOUND,
-            },
             name=helper.camel_to_snake(cls.__name__),
             operation_id=cls.__name__,
-        )(cls.generate_build_endpoint(schema))
+            **options,
+        )(build_endpoint)
 
+        check_endpoint, options = cls.generate_check_endpoint(schema, **answer_fields)
         router.post(
             path=path,
-            response_model=ExerciseResponse,
-            responses={
-                **core_schema.NOT_AUTHENTICATED,
-                **core_schema.OBJECT_NOT_FOUND,
-            },
+            response_model=cls.generate_exercise_response(),
             name=f'check_{helper.camel_to_snake(cls.__name__)}',
             operation_id=f'check_{cls.__name__}',
-        )(cls.generate_check_endpoint(schema, **answer_fields))
+            **options,
+        )(check_endpoint)
+
+    # end fastapi endpoint methods
 
 
 class OrderSentenceExercise(ExerciseBase):
@@ -154,7 +187,7 @@ class OrderSentenceExercise(ExerciseBase):
         return {'sentence': sentence}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> list[str]:
         return self.instance.sentence
 
     def assert_answer(self, answer: dict) -> bool:
@@ -169,7 +202,7 @@ class ListenTermExercise(ExerciseBase):
         return {'audio_url': self.instance.audio_url}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> str:
         return self.instance.answer
 
     def assert_answer(self, answer: dict) -> bool:
@@ -194,7 +227,7 @@ class ListenTermMChoiceExercise(ExerciseBase):
         return {'choices': choices, 'content': self.instance.content}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> UUID:
         return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
@@ -209,7 +242,7 @@ class ListenSentenceExercise(ExerciseBase):
         return {'audio_url': self.instance.audio_url}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> str:
         return self.instance.answer
 
     def assert_answer(self, answer: dict) -> bool:
@@ -218,7 +251,107 @@ class ListenSentenceExercise(ExerciseBase):
         return sentence == correct_answer
 
 
-class SpeakTermExercise(ExerciseBase):
+class SpeakExerciseBase(ExerciseBase):
+    MAX_TEXT_DISTANCE = 3
+
+    @classmethod
+    def generate_check_endpoint(
+        cls, schema: type[BaseModel], **answer_fields
+    ) -> tuple[Callable, dict]:
+        async def check_endpoint(
+            user: Annotated[FiefUserInfo, Depends(current_user)],
+            exercise_builder: Annotated[ExerciseBase, Depends(cls)],
+            answer: schema,
+            audio: UploadFile,
+        ):
+            return await exercise_builder.check(
+                user_id=user['sub'],
+                answer={'audio': await audio.read()},
+                exercise_request=answer.model_dump(),
+            )
+
+        path_options = {
+            'responses': {
+                **core_schema.NOT_AUTHENTICATED,
+                **core_schema.OBJECT_NOT_FOUND,
+                status.HTTP_400_BAD_REQUEST: {
+                    'content': {
+                        'application/json': {
+                            'examples': {
+                                'invalid_format': {
+                                    'summary': 'InvalidAudioFormat',
+                                    'value': {
+                                        'detail': 'audio file must be WAV format mono PCM.'
+                                    },
+                                },
+                                'could_not_trascribe': {
+                                    'summary': 'CouldNotTrascribe',
+                                    'value': {'detail': 'could not trascribe text.'},
+                                },
+                            }
+                        }
+                    },
+                },
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {
+                    'content': {
+                        'application/json': {
+                            'example': {'detail': 'audio_file is too big.'}
+                        }
+                    },
+                },
+                status.HTTP_503_SERVICE_UNAVAILABLE: {
+                    'content': {
+                        'application/json': {
+                            'example': {
+                                'detail': 'something went wrong in audio_file transcription.'
+                            }
+                        }
+                    },
+                },
+            },
+        }
+        return check_endpoint, path_options
+
+    @classmethod
+    def generate_exercise_response(cls):
+        class ExerciseResponseSpeak(BaseModel):
+            correct: bool
+            correct_answer: str = Field(examples=['i like pizza'])
+            user_transcription: str = Field(examples=['i bike pizza'])
+            text_diff: list[int] = Field(
+                examples=[[1]],
+                description='words index diff between correct_answer and user_transcription',
+            )
+
+        return ExerciseResponseSpeak
+
+    def assert_answer(self, answer: dict) -> bool:
+        return self.MAX_TEXT_DISTANCE >= text.text_distance(
+            self.correct_answer, answer['user_transcription']
+        )
+
+    async def check(
+        self,
+        user_id: str,
+        answer: dict,
+        exercise_request: dict,
+    ) -> dict:
+        audio = answer.pop('audio')
+        user_transcription = trascribe_to_text(
+            audio,
+            self.correct_answer.split(),
+            self.instance.language,
+        )
+        answer['user_transcription'] = user_transcription
+        check_response = await super().check(user_id, answer, exercise_request)
+        check_response['user_transcription'] = user_transcription
+        check_response['text_diff'] = text.text_diff(
+            self.correct_answer, user_transcription
+        )
+        return check_response
+
+
+class SpeakTermExercise(SpeakExerciseBase):
     exercise_type = ExerciseType.SPEAK_TERM
     instance: type[models.SpeakTerm]
 
@@ -226,41 +359,14 @@ class SpeakTermExercise(ExerciseBase):
         return {
             'audio_url': self.instance.audio_url,
             'phonetic': self.instance.phonetic,
-            'content': self.instance.content,
         }
 
     @property
     def correct_answer(self):
-        return self.instance.content
-
-    def assert_answer(self, answer: dict) -> bool:
-        # TODO: SpeechToText API
-        return True
-
-    def check(self, user: FiefUserInfo, answer: dict, exercise_request: dict) -> dict:
-        answer.pop('audio')  # TODO: SpeechToText API
-        return super().check(user, answer, exercise_request)
-
-    @classmethod
-    def _generate_check_endpoint(cls, CheckSchema: type[BaseModel], **answer_fields):
-        def check_endpoint(
-            user: Annotated[FiefUserInfo, Depends(current_user)],
-            exercise_builder: Annotated[type[ExerciseBase], Depends(cls)],
-            answer: CheckSchema,
-            audio: UploadFile,
-        ):
-            return ExerciseResponse(
-                **exercise_builder.check(
-                    user=user,
-                    answer={'audio': audio},
-                    exercise_request=answer.model_dump(),
-                )
-            )
-
-        return check_endpoint
+        return self.instance.answer
 
 
-class SpeakSentenceExercise(ExerciseBase):
+class SpeakSentenceExercise(SpeakExerciseBase):
     exercise_type = ExerciseType.SPEAK_SENTENCE
     instance: type[models.SpeakSentence]
 
@@ -268,38 +374,11 @@ class SpeakSentenceExercise(ExerciseBase):
         return {
             'audio_url': self.instance.audio_url,
             'phonetic': self.instance.phonetic,
-            'content': self.instance.content,
         }
 
     @property
     def correct_answer(self):
-        return self.instance.content
-
-    def assert_answer(self, answer: dict) -> bool:
-        # TODO: SpeechToText API
-        return True
-
-    def check(self, user: FiefUserInfo, answer: dict, exercise_request: dict) -> dict:
-        answer.pop('audio')  # TODO: SpeechToText API
-        return super().check(user, answer, exercise_request)
-
-    @classmethod
-    def _generate_check_endpoint(cls, CheckSchema: type[BaseModel], **answer_fields):
-        def check_endpoint(
-            user: Annotated[FiefUserInfo, Depends(current_user)],
-            exercise_builder: Annotated[type[ExerciseBase], Depends(cls)],
-            answer: CheckSchema,
-            audio: UploadFile,
-        ):
-            return ExerciseResponse(
-                **exercise_builder.check(
-                    user=user,
-                    answer={'audio': audio},
-                    exercise_request=answer.model_dump(),
-                )
-            )
-
-        return check_endpoint
+        return self.instance.answer
 
 
 class TermSentenceMChoiceExercise(ExerciseBase):
@@ -311,14 +390,14 @@ class TermSentenceMChoiceExercise(ExerciseBase):
         return helper.sample_dict(self.instance.distractors, 3)
 
     def build(self) -> dict:
-        choices = {self.instance.term_id: self.instance.conetnt}
+        choices = {self.instance.term_id: self.instance.answer}
         choices.update(self.distractors)
         choices = helper.shuffle_dict(choices)
 
         return {'choices': choices, 'content': self.instance.sentence}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> UUID:
         return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
@@ -341,7 +420,7 @@ class TermDefinitionMChoiceExercise(ExerciseBase):
         return {'choices': choices, 'content': self.instance.content}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> UUID:
         return self.instance.term_definition_id
 
     def assert_answer(self, answer: dict) -> bool:
@@ -364,7 +443,7 @@ class TermImageMChoiceExercise(ExerciseBase):
         return {'choices': choices, 'audio_url': self.instance.audio_url}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> UUID:
         return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
@@ -387,7 +466,7 @@ class TermImageTextMChoiceExercise(ExerciseBase):
         return {'choices': choices, 'image_url': self.instance.image_url}
 
     @property
-    def correct_answer(self):
+    def correct_answer(self) -> UUID:
         return self.instance.term_id
 
     def assert_answer(self, answer: dict) -> bool:
@@ -407,8 +486,8 @@ class TermConnectionExercise(ExerciseBase):
         return {'choices': choices, 'content': self.instance.content}
 
     @property
-    def correct_answer(self):
-        return self.instance.connections
+    def correct_answer(self) -> list[UUID]:
+        return list(self.instance.connections.keys())
 
     def assert_answer(self, answer: dict) -> bool:
         return all([choice in self.correct_answer for choice in answer['choices']])

@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 
 from exako.apps.computed.router import computed_router
 from exako.apps.exercise.router import exercise_router
+from exako.apps.history.router import history_router
 from exako.core.helper import register_documents
 from exako.settings import settings
 
@@ -35,6 +36,9 @@ add_pagination(app)
 app.include_router(exercise_router, prefix='/exercise', tags=['exercise'])
 app.include_router(
     computed_router, prefix='/exercise/computed', tags=['computed exercise']
+)
+app.include_router(
+    history_router, prefix='/exercise/history', tags=['exercise history']
 )
 
 

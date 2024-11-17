@@ -42,6 +42,16 @@ async def test_create_exercise(client, factory):
     assert await factory.find_computed(payload) is None
 
 
+@parametrize_exercies
+async def test_create_exercise_already_exists(client, factory):
+    payload = factory.generate_payload()
+    await factory(**json.loads(payload))
+
+    response = await client.post(create_exercise_router, content=payload)
+
+    assert response.status_code == 409
+
+
 @pytest.mark.parametrize('conflict_str', ['test', '!test.', 'TEST', '    test '])
 async def test_create_order_sentence_exercise_invalid_distractors(client, conflict_str):
     payload = exercise_factory.OrderSentenceFactory.generate_payload(
@@ -51,21 +61,11 @@ async def test_create_order_sentence_exercise_invalid_distractors(client, confli
 
     response = await client.post(create_exercise_router, content=payload)
 
-    content = response.json()
-    assert response.status_code == 201
-    exercise = await Exercise.get(content['id'], with_children=True)
-    assert 'test' not in exercise.distractors
-    assert await exercise_factory.OrderSentenceFactory.find_computed(payload) is None
-
-
-@parametrize_exercies
-async def test_create_exercise_already_exists(client, factory):
-    payload = factory.generate_payload()
-    await factory(**json.loads(payload))
-
-    response = await client.post(create_exercise_router, content=payload)
-
-    assert response.status_code == 409
+    assert response.status_code == 422
+    assert (
+        'an intersection was found between sentence list and distractors.'
+        in response.json()['detail'][0]['msg']
+    )
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,5 @@
-from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -53,11 +53,6 @@ class ExerciseRead(BaseModel):
     url: str
 
 
-class ExerciseResponse(BaseModel):
-    correct: bool
-    correct_answer: Any | None = None
-
-
 class OrderSentenceRead(BaseModel):
     sentence: list[str] = Field(
         examples=[['almoçei', 'na', 'Ontem', 'casa', 'da', 'eu', 'mãe', 'minha.']]
@@ -72,10 +67,10 @@ class ListenMChoiceRead(BaseModel):
     choices: dict[str, str] = Field(
         examples=[
             {
-                '1': 'https://example.com/my-audio.wav',
-                '2': 'https://example.com/my-audio.wav',
-                '3': 'https://example.com/my-audio.wav',
-                '4': 'https://example.com/my-audio.wav',
+                uuid4(): 'https://example.com/my-audio.wav',
+                uuid4(): 'https://example.com/my-audio.wav',
+                uuid4(): 'https://example.com/my-audio.wav',
+                uuid4(): 'https://example.com/my-audio.wav',
             }
         ],
         description='Será retornado sempre 4 alternativas, incluindo a correta.',
@@ -89,15 +84,13 @@ class ListenMChoiceRead(BaseModel):
 class SpeakRead(BaseModel):
     audio_url: str = Field(examples=['https://example.com/my-audio.wav'])
     phonetic: str = Field(examples=['/ˈhaʊ.zɪz/'])
-    content: str = Field(
-        examples=['casa'],
-        description='Conteúdo que ficará no header.',
-    )
 
 
 class TermMChoiceRead(BaseModel):
     choices: dict[str, str] = Field(
-        examples=[{'1': 'casa', '2': 'fogueira', '3': 'semana', '4': 'avião'}],
+        examples=[
+            {uuid4(): 'casa', uuid4(): 'fogueira', uuid4(): 'semana', uuid4(): 'avião'}
+        ],
         description='Será retornado sempre 4 alternativas, incluindo a correta.',
     )
     content: str = Field(
@@ -111,10 +104,10 @@ class ImageMChoiceRead(BaseModel):
     choices: dict[str, str] = Field(
         examples=[
             {
-                '1': 'https://example.com',
-                '2': 'https://example.com',
-                '3': 'https://example.com',
-                '4': 'https://example.com',
+                uuid4(): 'https://example.com',
+                uuid4(): 'https://example.com',
+                uuid4(): 'https://example.com',
+                uuid4(): 'https://example.com',
             }
         ],
         description='Será retornado sempre 4 alternativas contendo o id do termo referido e o link para imagem do termo.',
@@ -124,14 +117,29 @@ class ImageMChoiceRead(BaseModel):
 class TextImageMChoiceRead(BaseModel):
     image_url: str = Field(examples=['https://example.com/my-image.svg'])
     choices: dict[str, str] = Field(
-        examples=[{'1': 'casa', '2': 'avião', '3': 'jaguar', '4': 'parede'}],
+        examples=[
+            {uuid4(): 'casa', uuid4(): 'avião', uuid4(): 'jaguar', uuid4(): 'parede'}
+        ],
         description='Será retornado sempre 4 alternativas contendo o id do termo referido e o link para imagem do termo.',
     )
 
 
 class TextConnectionRead(BaseModel):
     choices: dict[str, str] = Field(
-        examples=[[{'1': 'casa', '2': 'avião', '3': 'jaguar', '4': 'parede'}]],
+        examples=[
+            [
+                {
+                    uuid4(): 'casa',
+                    uuid4(): 'avião',
+                    uuid4(): 'jaguar',
+                    uuid4(): 'test',
+                    uuid4(): 'casar',
+                    uuid4(): 'já',
+                    uuid4(): 'pode',
+                    uuid4(): 'almoçar',
+                }
+            ]
+        ],
     )
     content: str = Field(
         examples=['casa'],

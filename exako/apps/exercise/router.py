@@ -1,5 +1,6 @@
 from random import random
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from fastapi_pagination import Params
@@ -68,7 +69,7 @@ builder.ListenTermMChoiceExercise.as_endpoint(
     router=exercise_router,
     path='/listen-term-mchoice/{exercise_id}',
     schema=schema.ListenMChoiceRead,
-    term_id=int,
+    term_id=UUID,
 )
 
 builder.ListenSentenceExercise.as_endpoint(
@@ -94,33 +95,33 @@ builder.TermSentenceMChoiceExercise.as_endpoint(
     router=exercise_router,
     path='/term-mchoice/{exercise_id}',
     schema=schema.TermMChoiceRead,
-    term_id=int,
+    term_id=UUID,
 )
 
 builder.TermDefinitionMChoiceExercise.as_endpoint(
     router=exercise_router,
     path='/definition-mchoice/{exercise_id}',
     schema=schema.TermMChoiceRead,
-    term_id=int,
+    term_id=UUID,
 )
 
 builder.TermImageMChoiceExercise.as_endpoint(
     router=exercise_router,
     path='/term-image-mchoice/{exercise_id}',
     schema=schema.ImageMChoiceRead,
-    term_id=int,
+    term_id=UUID,
 )
 
 builder.TermImageTextMChoiceExercise.as_endpoint(
     router=exercise_router,
     path='/term-image-text-mchoice/{exercise_id}',
     schema=schema.TextImageMChoiceRead,
-    term_id=int,
+    term_id=UUID,
 )
 
 builder.TermConnectionExercise.as_endpoint(
     router=exercise_router,
     path='/term-connection/{exercise_id}',
     schema=schema.TextConnectionRead,
-    choices=(list[int], Field(min_length=4, max_length=4)),
+    choices=(list[UUID], Field(min_length=4, max_length=4)),
 )
